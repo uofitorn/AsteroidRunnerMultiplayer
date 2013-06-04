@@ -8,7 +8,6 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.media.AudioManager;
 import android.os.Bundle;
-import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 import android.media.SoundPool;
@@ -16,20 +15,18 @@ import android.os.Handler;
 
 import android.graphics.Color;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.InetAddress;
-import java.net.Socket;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class AsteroidRunner {
 
     private final static String TAG = "AsteroidRunner";
 
+    public static final int DELAY_TO_START_GAME = 1;
+
     public static final int GAMESTATE_PLAYING = 0;
     public static final int GAMESTATE_WON_GAME = 1;
-    public static final int GAMESTATE_LOST_GAME = 2;
+    public static final int GAMESTATE_CRASHED = 2;
     public static final int GAMESTATE_MAIN_MENU = 3;
     public static final int GAMESTATE_IN_LOBBY = 4;
     public static final int GAMESTATE_WAITING = 5;
@@ -43,6 +40,11 @@ public class AsteroidRunner {
     public static final int COMMAND_MOVE_UP = 11;
     public static final int COMMAND_MOVE_LEFT = 12;
     public static final int COMMAND_MOVE_RIGHT = 13;
+    public static final int COMMAND_PLAYER_WON = 20;
+    public static final int COMMAND_OTHER_PLAYER_CRASHED = 21;
+
+    public static final int OTHER_PLAYER_STATE_CRASHED = 0;
+    public static final int OTHER_PLAYER_STATE_ALIVE = 1;
 
     private int explosionSound;
     private int startingSound;
@@ -50,14 +52,18 @@ public class AsteroidRunner {
 
     private int playerX = 0;
     private int playerY = 0;
+    private int otherPlayerX = 0;
+    private int otherPlayerY = 0;
     private int surroundingMines = 0;
     private int gridSquareLength = 0;
     private int gridSquareHeight = 0;
     private int canvasWidth = 0;
     private int canvasHeight = 0;
     private int gameState;
+    private int otherPlayerState;
     private int frameBufferWidth;
     private int frameBufferHeight;
+    private int countDown;
 
     public static final double DIFFICULTY_SUPER_EASY_VALUE = 0.02;
     public static final double DIFFICULTY_EASY_VALUE = 0.08;
@@ -71,14 +77,16 @@ public class AsteroidRunner {
     private static final int boardSize = 12;
     private int[][] gameBoard = new int[boardSize][boardSize];
     private int[][] playerVisited = new int[boardSize][boardSize];
-    private double difficultyLevelValue = DIFFICULTY_SUPER_EASY_VALUE;
-    private int difficultyLevel = DIFFICULTY_SUPER_EASY;
+    private int[][] otherPlayerVisited = new int[boardSize][boardSize];
+    private double difficultyLevelValue = DIFFICULTY_EASY_VALUE;
+    private int difficultyLevel = DIFFICULTY_EASY;
 
     private Bitmap backgroundImage;
-    private Bitmap playerShipSprite;
-    private Bitmap spaceMineSprite;
+    private Bitmap playerShip;
+    private Bitmap otherPlayerShip;
+    private Bitmap spaceMine;
     private Bitmap squareBG, visitedSquare;
-    private Bitmap explosionSprite;
+    private Bitmap explosion;
     private Bitmap gameOver;
     private Bitmap upArrow, downArrow, leftArrow, rightArrow;
     private Bitmap minesNearby;
@@ -103,10 +111,57 @@ public class AsteroidRunner {
 
     private String status = "";
 
-    Thread cThread;
-    Handler childHandler;
-    NetworkThreadSender networkThreadSender;
+    //private Thread cThread;
+    private NetworkThread mNetworkThread;
     boolean connected = false;
+
+    class MyTask extends TimerTask {
+        public void run() {
+            otherPlayerState = OTHER_PLAYER_STATE_ALIVE;
+            otherPlayerX = 0;
+            otherPlayerY = 0;
+        }
+    }
+
+    Handler handler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            Bundle bundle = msg.getData();
+            int command = bundle.getInt("command");
+            switch(command) {
+                case COMMAND_BEGIN:
+                    setStatus("Beginning game");
+                    startNewGame();
+                    break;
+                case COMMAND_MOVE_DOWN:
+                    if (otherPlayerY != boardSize - 1) {
+                        otherPlayerY++;
+                    }
+                    break;
+                case COMMAND_MOVE_UP:
+                    if (otherPlayerY != 0) {
+                        otherPlayerY--;
+                    }
+                    break;
+                case COMMAND_MOVE_LEFT:
+                    if (otherPlayerX != 0) {
+                        otherPlayerX--;
+                    }
+                    break;
+                case COMMAND_MOVE_RIGHT:
+                    if (otherPlayerX != boardSize - 1) {
+                        otherPlayerX++;
+                    }
+                    break;
+                case COMMAND_OTHER_PLAYER_CRASHED:
+                    otherPlayerState = OTHER_PLAYER_STATE_CRASHED;
+                    soundPool.play(explosionSound, 1.0f, 1.0f, 1, 0, 1.0f);
+                    MyTask t = new MyTask();
+                    new Timer().schedule(t, 3000);
+                    break;
+            }
+        }
+    };
 
     public AsteroidRunner(Context context, int frameBufferWidth, int frameBufferHeight) {
         this.frameBufferWidth = frameBufferWidth;
@@ -115,16 +170,10 @@ public class AsteroidRunner {
         initSounds(context);
         do {
             shuffleMap();
-            Log.i(TAG, "Shuffling game board");
         } while (!isSolvable());
         calcSurroundingMines();
         gameState = GAMESTATE_MAIN_MENU;
         playerVisited[0][0] = 1;
-
-        networkThreadSender = new NetworkThreadSender();
-        cThread = new Thread(networkThreadSender);
-        cThread.start();
-
     }
 
     public void initSounds(Context context) {
@@ -136,10 +185,10 @@ public class AsteroidRunner {
     public void initImages(Context context) {
         Resources res = context.getResources();
         backgroundImage = BitmapFactory.decodeResource(res, R.drawable.starbackground);
-        playerShipSprite = BitmapFactory.decodeResource(res, R.drawable.lander_plain);
-        spaceMineSprite = BitmapFactory.decodeResource(res, R.drawable.spacemine);
+        playerShip = BitmapFactory.decodeResource(res, R.drawable.lander_plain);
+        spaceMine = BitmapFactory.decodeResource(res, R.drawable.spacemine);
         squareBG = BitmapFactory.decodeResource(res, R.drawable.bgsquare);
-        explosionSprite = BitmapFactory.decodeResource(res, R.drawable.explosion);
+        explosion = BitmapFactory.decodeResource(res, R.drawable.explosion);
         gameOver = BitmapFactory.decodeResource(res, R.drawable.gameover);
         upArrow = BitmapFactory.decodeResource(res, R.drawable.uparrow);
         downArrow = BitmapFactory.decodeResource(res, R.drawable.downarrow);
@@ -158,6 +207,7 @@ public class AsteroidRunner {
         difficulty2 = BitmapFactory.decodeResource(res, R.drawable.difficulty2);
         difficulty3 = BitmapFactory.decodeResource(res, R.drawable.difficulty3);
         mainMenu = BitmapFactory.decodeResource(res, R.drawable.mainmenu);
+        otherPlayerShip = BitmapFactory.decodeResource(res, R.drawable.otherplayership);
 
         numerals[0] = BitmapFactory.decodeResource(res, R.drawable.zero);
         numerals[1] = BitmapFactory.decodeResource(res, R.drawable.one);
@@ -174,48 +224,44 @@ public class AsteroidRunner {
         playerY = 0;
         do {
             shuffleMap();
-            Log.i(TAG, "Shuffling game board");
         } while (!isSolvable());
 
         calcSurroundingMines();
-        gameState = GAMESTATE_PLAYING;
         for (int i = 0; i < boardSize; i++) {
             for (int j = 0; j < boardSize; j++) {
                 playerVisited[i][j] = 0;
             }
         }
+
+        for (int i = DELAY_TO_START_GAME; i != 0; i--) {
+            try {
+                setStatus("Starting game in " + i);
+                Thread.sleep(1000);
+            } catch (Exception e) {
+                Log.e(TAG, "Caught exception: " + e + " + in Thread.sleep");
+            }
+        }
         playerVisited[0][0] = 1;
         gameState = GAMESTATE_PLAYING;
+        Log.i(TAG, "Playing start sound in startNewGame()");
         soundPool.play(startingSound, 1.0f, 1.0f, 1, 0, 1f);
+        otherPlayerState = OTHER_PLAYER_STATE_ALIVE;
     }
 
     public void startNewMultiplayerGame() {
         setStatus("Connecting to server...");
         gameState = GAMESTATE_IN_LOBBY;
-        Message msg = childHandler.obtainMessage();
-        Bundle bundle = new Bundle();
-        bundle.putInt("command", COMMAND_CONNECT);
-        msg.setData(bundle);
-        childHandler.sendMessage(msg);
         gameState = GAMESTATE_WAITING;
         connected = true;
-
-        msg = childHandler.obtainMessage();
-        bundle = new Bundle();
-        bundle.putInt("command", COMMAND_LISTEN);
-        msg.setData(bundle);
-        childHandler.sendMessage(msg);
-    }
-
-    public void beginMultiplayerGame() {
-        Log.i(TAG, "Beginning multiplayer game");
+        mNetworkThread = new NetworkThread(handler);
+        mNetworkThread.start();
     }
 
     public void drawMines(Canvas canvas) {
         for (int i = 0; i < boardSize; i++) {
             for (int j = 0; j < boardSize; j++) {
                 if (gameBoard[i][j] == 1) {
-                    canvas.drawBitmap(spaceMineSprite, i * gridSquareLength, j * gridSquareHeight, null);
+                    canvas.drawBitmap(spaceMine, i * gridSquareLength, j * gridSquareHeight, null);
                 }
             }
         }
@@ -281,7 +327,7 @@ public class AsteroidRunner {
                     canvas.drawBitmap(difficulty3, difficultyLevelX, difficultyLevelY, null);
                     break;
             } */
-        } else if (gameState == GAMESTATE_LOST_GAME || gameState == GAMESTATE_WON_GAME) {
+        } else if (gameState == GAMESTATE_WON_GAME) {
             canvas.drawBitmap(backgroundImage, 0, 0, null);
             Paint gridPaint = new Paint();
             gridPaint.setAntiAlias(true);
@@ -297,6 +343,22 @@ public class AsteroidRunner {
         }
     }
 
+    public void drawResetGame(Canvas canvas) {
+        canvas.drawBitmap(backgroundImage, 0, 0, null);
+        Paint gridPaint = new Paint();
+        gridPaint.setAntiAlias(true);
+        gridPaint.setARGB(255, 255, 255, 255);
+        for (int i = 0; i <= boardSize; i++) {
+            canvas.drawLine(0, i * gridSquareHeight, frameBufferWidth, i * gridSquareHeight, gridPaint);
+        }
+        for (int i = 0; i < boardSize; i++) {
+            canvas.drawLine(i * gridSquareLength, 0, i * gridSquareLength, frameBufferWidth, gridPaint);
+        }
+        canvas.drawBitmap(wormhole, 11 * gridSquareLength, 11 * gridSquareLength, null);
+        canvas.drawBitmap(redStar, 0, 0, null);
+        canvas.drawBitmap(explosion, playerX * gridSquareLength, playerY * gridSquareHeight, null);
+    }
+
     public void drawLobby(Canvas canvas) {
         canvas.drawBitmap(startScreen, 0, 0, null);
         Paint paint = new Paint();
@@ -307,7 +369,14 @@ public class AsteroidRunner {
     }
 
     public void drawPlayerShip(Canvas canvas) {
-        canvas.drawBitmap(playerShipSprite, playerX * gridSquareLength, playerY * gridSquareHeight + 5, null);
+        canvas.drawBitmap(playerShip, playerX * gridSquareLength, playerY * gridSquareHeight + 5, null);
+    }
+
+    public void drawOtherPlayerShip(Canvas canvas) {
+        if(otherPlayerState == OTHER_PLAYER_STATE_ALIVE)
+            canvas.drawBitmap(otherPlayerShip, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight + 5, null);
+        else
+            canvas.drawBitmap(explosion, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight + 5, null);
     }
 
     public void drawMineCount(Canvas canvas) {
@@ -340,6 +409,7 @@ public class AsteroidRunner {
         if (playerY != 0) {
             playerY--;
             playerVisited[playerX][playerY] = 1;
+            mNetworkThread.sendMessage(COMMAND_MOVE_UP);
         }
     }
 
@@ -347,13 +417,7 @@ public class AsteroidRunner {
         if (playerY != boardSize - 1) {
             playerY++;
             playerVisited[playerX][playerY] = 1;
-            Log.i(TAG, "Sending message MOVE_DOWN to childHandler");
-            Message msg = childHandler.obtainMessage();
-            Bundle bundle = new Bundle();
-            bundle.putInt("command", COMMAND_MOVE_DOWN);
-            msg.setData(bundle);
-            childHandler.sendMessage(msg);
-
+            mNetworkThread.sendMessage(COMMAND_MOVE_DOWN);
         }
     }
 
@@ -361,6 +425,7 @@ public class AsteroidRunner {
         if (playerX != boardSize - 1) {
             playerX++;
             playerVisited[playerX][playerY] = 1;
+            mNetworkThread.sendMessage(COMMAND_MOVE_RIGHT);
         }
     }
 
@@ -368,23 +433,36 @@ public class AsteroidRunner {
         if (playerX != 0) {
             playerX--;
             playerVisited[playerX][playerY] = 1;
+            mNetworkThread.sendMessage(COMMAND_MOVE_LEFT);
         }
+    }
+
+    public void resetGame() {
+        playerX = 0;
+        playerY = 0;
+        calcSurroundingMines();
+        for (int i = 0; i < boardSize; i++) {
+            for (int j = 0; j < boardSize; j++) {
+                playerVisited[i][j] = 0;
+            }
+        }
+        playerVisited[0][0] = 1;
+        gameState = GAMESTATE_PLAYING;
+        Log.i(TAG, "Playing start sound in resetGame()");
+        soundPool.play(startingSound, 1.0f, 1.0f, 1, 0, 1f);
     }
 
     public void calculateCollision() {
         if (gameBoard[playerX][playerY] == 1) {
-            gameState = GAMESTATE_LOST_GAME;
+            gameState = GAMESTATE_CRASHED;
             soundPool.play(explosionSound, 1.0f, 1.0f, 1, 0, 1.0f);
+            mNetworkThread.sendMessage(COMMAND_OTHER_PLAYER_CRASHED);
         } else if (playerX == 11 && playerY == 11) {
             gameState = GAMESTATE_WON_GAME;
         } else {
             // Only play sound if not a collision or winning state
             ;//soundPool.play(zoomSound, 1.0f, 1.0f, 1, 0, 1.0f);
         }
-    }
-
-    public void drawExplosion(Canvas canvas) {
-        canvas.drawBitmap(explosionSprite, playerX * gridSquareLength, playerY * gridSquareHeight, null);
     }
 
     public void drawYouWon(Canvas canvas) {
@@ -456,20 +534,21 @@ public class AsteroidRunner {
 
     void initializeImages(int framebufferWidth, int framebufferHeight) {
         squareBG = Bitmap.createScaledBitmap(squareBG, gridSquareLength, gridSquareHeight, true);
-        spaceMineSprite = Bitmap.createScaledBitmap(spaceMineSprite, gridSquareLength, gridSquareHeight, true);
+        spaceMine = Bitmap.createScaledBitmap(spaceMine, gridSquareLength, gridSquareHeight, true);
         startScreen = Bitmap.createScaledBitmap(startScreen, framebufferWidth, framebufferHeight, true);
         backgroundImage = Bitmap.createScaledBitmap(backgroundImage, framebufferWidth, framebufferHeight, true);
-        playerShipSprite = Bitmap.createScaledBitmap(playerShipSprite, gridSquareLength, gridSquareHeight, true);
-        explosionSprite = Bitmap.createScaledBitmap(explosionSprite, gridSquareLength, gridSquareHeight, true);
+        playerShip = Bitmap.createScaledBitmap(playerShip, gridSquareLength, gridSquareHeight, true);
+        explosion = Bitmap.createScaledBitmap(explosion, gridSquareLength, gridSquareHeight, true);
         visitedSquare = Bitmap.createScaledBitmap(visitedSquare, gridSquareLength, gridSquareHeight, true);
         wormhole = Bitmap.createScaledBitmap(wormhole, gridSquareLength, gridSquareHeight, true);
         redStar = Bitmap.createScaledBitmap(redStar, gridSquareLength, gridSquareHeight, true);
+        otherPlayerShip = Bitmap.createScaledBitmap(otherPlayerShip, gridSquareLength, gridSquareHeight, true);
     }
 
     void drawGameOver(Canvas canvas) {
         canvas.drawBitmap(gameOver, 85, frameBufferWidth + 50, null);
-        canvas.drawBitmap(newGame, newGameX, newGameY, null);
-        canvas.drawBitmap(mainMenu, mainMenuX, mainMenuY, null);
+        //canvas.drawBitmap(newGame, newGameX, newGameY, null);
+        //canvas.drawBitmap(mainMenu, mainMenuX, mainMenuY, null);
     }
 
     void drawControls(Canvas canvas) {
@@ -492,7 +571,7 @@ public class AsteroidRunner {
             }
             calcSurroundingMines();
             calculateCollision();
-        } else if(gameState == GAMESTATE_LOST_GAME) {
+        } else if(gameState == GAMESTATE_CRASHED) {
             if(checkBounds(newGameX, newGameY, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
                 startNewGame();
             } else if (checkBounds(mainMenuX, mainMenuY, mainMenu.getWidth(), mainMenu.getHeight(), touchX, touchY)) {
@@ -533,132 +612,13 @@ public class AsteroidRunner {
     }
 
     boolean checkBounds(int x, int y, float xSize, float ySize, float touchX, float touchY) {
-        Log.i(TAG, "Checking x: " + x + " and y: " + y + " and xSize: " + xSize + " and ySize: " + ySize + " and touchX: " + touchX + " and touchY: " + touchY);
-        if ((touchX > x) && (touchX < x + xSize) && (touchY > y) && (touchY < y + ySize)) {
-            Log.i(TAG, "Inside bounds");
+        if ((touchX > x) && (touchX < x + xSize) && (touchY > y) && (touchY < y + ySize))
             return true;
-        }
-        else {
-            Log.i(TAG, "Not inside bounds");
+        else
             return false;
-        }
     }
 
     void setStatus(String status) {
         this.status = status;
-    }
-
-    Handler handler = new Handler() {
-        @Override
-        public void handleMessage(Message msg) {
-            Bundle bundle = msg.getData();
-            int command = bundle.getInt("command");
-            Log.i(TAG, "AsteroidRunner received command: " + command);
-            switch(command) {
-                case 0:
-                    setStatus("Connected to server.");
-                    Log.i(TAG, "AsteroidRunner received message");
-                    break;
-                case COMMAND_BEGIN:
-                    Log.i(TAG, "Setting status to beginning game");
-                    setStatus("Beginning game");
-                    startNewGame();
-                    networkThreadSender.sendMessage();
-                    break;
-            }
-        }
-    };
-
-
-
-
-    public class NetworkThreadSender implements Runnable {
-        private final static String TAG = "NetworkThreadSender";
-        InetAddress serverAddr;
-        Socket socket;
-        boolean connected = false;
-
-
-
-        public void sendMessage() {
-            Log.i(TAG, "Sending down move to server");
-            try {
-                PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-                out.println(COMMAND_MOVE_DOWN);
-            } catch(Exception e) {
-                Log.e(TAG, "Exception caught sending down move");
-            }
-        }
-
-        public void run() {
-            try {
-                Looper.prepare();
-                childHandler = new Handler() {
-                    public void handleMessage(Message msg) {
-                        Bundle bundle = msg.getData();
-                        int command = bundle.getInt("command");
-                        Log.i(TAG, "Thread received command: " + command);
-                        switch(command) {
-                            case COMMAND_CONNECT:
-                                connectToServer();
-                                break;
-                            case COMMAND_LISTEN:
-                                try{
-                                    BufferedReader in = new BufferedReader (new InputStreamReader(socket.getInputStream()));
-                                    Log.i(TAG, "Listening for message from server");
-                                    final String msgFromServer = in.readLine();
-                                    Log.i(TAG, "Message received: " + msgFromServer);
-                                    Message msg2 = handler.obtainMessage();
-                                    Bundle bundle2 = new Bundle();
-                                    bundle2.putInt("command", Integer.parseInt(msgFromServer));
-                                    msg2.setData(bundle2);
-                                    Log.i(TAG, "Sending message: " + Integer.parseInt(msgFromServer) + "to handler");
-                                    handler.sendMessage(msg2);
-                                } catch (IOException e) {
-                                    Log.e(TAG, "Caught IOException");
-                                }
-                                break;
-                            case COMMAND_DISCONNECT:
-                                disconnectFromServer();
-                                break;
-                            case COMMAND_MOVE_DOWN:
-                                Log.i(TAG, "Sending down move to server");
-                                try {
-                                    PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-                                    out.println(COMMAND_MOVE_DOWN);
-                                } catch(Exception e) {
-                                    Log.e(TAG, "Exception caught sending down move");
-                                }
-                                break;
-                        }
-                    }
-                };
-                Looper.loop();
-            } catch (Exception e) {
-                Log.i(TAG, "Caught Exception in worker thread message loop: " + e.toString());
-            }
-        }
-
-        public void connectToServer() {
-            Log.i(TAG, "Connecting to server");
-            try {
-                serverAddr = InetAddress.getByName("208.78.100.124");
-                socket = new Socket(serverAddr, 3000);
-                Log.i(TAG, "Connected to server");
-                connected = true;
-            } catch (Exception e) {
-                Log.e(TAG, "Caught exception connecting to server");
-            }
-        }
-
-        public void disconnectFromServer() {
-            try {
-                socket.close();
-                connected = false;
-                Log.i(TAG, "Disconnecting from server");
-            } catch (Exception e) {
-                Log.e(TAG, "Exception closing connection");
-            }
-        }
     }
 }

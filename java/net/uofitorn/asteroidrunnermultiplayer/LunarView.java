@@ -23,7 +23,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         public static final int STATE_READY = 3;
         public static final int STATE_RUNNING = 4;
         public static final int STATE_WIN = 5;
-        private int mode;
+        private int mode = STATE_RUNNING;
 
         private int canvasHeight = 1;
         private int canvasWidth = 1;
@@ -45,6 +45,8 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         int frameBufferHeight = 960;
         float scaleX;
         float scaleY;
+
+        private int didDrawCrash = 0;
 
         Canvas fbCanvas;
 
@@ -70,7 +72,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
 
         public void setState(int mode, CharSequence message) {
             synchronized (surfaceHolder) {
-                mode = mode;
+                this.mode = mode;
             }
         }
 
@@ -104,22 +106,30 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
 
         public void updateState() {
             asteroidRunner.calculateCollision();
+            if ((asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) && didDrawCrash == 1) {
+                try {
+                    Thread.sleep(3000);
+                } catch (Exception e) {
+                    Log.e(TAG, "Caught exception in thread.sleep");
+                }
+                didDrawCrash = 0;
+                asteroidRunner.resetGame();
+            }
         }
 
         private void doDraw(Canvas canvas) {
             Rect dstRect = new Rect();
             if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_PLAYING) {
                 asteroidRunner.drawBackground(fbCanvas);
-                asteroidRunner.drawPlayerShip(fbCanvas);
                 asteroidRunner.drawMineCount(fbCanvas);
                 asteroidRunner.drawSquareCover(fbCanvas);
                 asteroidRunner.drawControls(fbCanvas);
-            } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_LOST_GAME) {
-                asteroidRunner.drawBackground(fbCanvas);
-                asteroidRunner.drawMines(fbCanvas);
-                asteroidRunner.drawExplosion(fbCanvas);
-                asteroidRunner.drawGameOver(fbCanvas);
-                asteroidRunner.drawVisited(fbCanvas);
+                asteroidRunner.drawOtherPlayerShip(fbCanvas);
+                asteroidRunner.drawPlayerShip(fbCanvas);
+            } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) {
+                asteroidRunner.drawResetGame(fbCanvas);
+                asteroidRunner.drawSquareCover(fbCanvas);
+                didDrawCrash = 1;
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_WON_GAME) {
                 asteroidRunner.drawBackground(fbCanvas);
                 asteroidRunner.drawMines(fbCanvas);
