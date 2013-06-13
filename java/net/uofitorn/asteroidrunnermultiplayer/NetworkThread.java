@@ -21,6 +21,7 @@ public class NetworkThread extends Thread {
     BufferedReader in;
     boolean connected = false;
     Handler handler;
+    PrintWriter out;
 
     public NetworkThread(Handler handler) {
         this.handler = handler;
@@ -29,7 +30,6 @@ public class NetworkThread extends Thread {
     public void sendMessage(int message) {
         Log.i(TAG, "Sending message: " + message + " to server.");
         try {
-            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
             out.println(message);
         } catch(Exception e) {
             Log.e(TAG, "Exception caught sending");
@@ -44,7 +44,7 @@ public class NetworkThread extends Thread {
                     Log.i(TAG, "Message received: " + msgFromServer);
                     switch (Integer.parseInt(msgFromServer)) {
                         case 99:
-                            disconnectFromServer();
+                            closeConnection();
                             break;
                     }
                     Message msg = handler.obtainMessage();
@@ -69,13 +69,15 @@ public class NetworkThread extends Thread {
             Log.i(TAG, "Connected to server");
             connected = true;
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new PrintWriter(socket.getOutputStream(), true);
         } catch (Exception e) {
             Log.e(TAG, "Caught exception connecting to server: " + e.toString());
         }
     }
 
-    public void disconnectFromServer() {
+    public void closeConnection() {
         try {
+            out.println("99");
             socket.close();
             connected = false;
             Log.i(TAG, "Disconnecting from server");

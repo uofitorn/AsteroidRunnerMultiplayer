@@ -58,6 +58,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
             framebuffer = Bitmap.createBitmap(frameBufferWidth, frameBufferHeight, Bitmap.Config.RGB_565);
             fbCanvas = new Canvas(framebuffer);
             asteroidRunner = new AsteroidRunner(ctx, frameBufferWidth, frameBufferHeight);
+            Log.i(TAG, "Testing logging to lunarthread");
         }
 
         public void setRunning(boolean running) { //Allow us to stop the thread
@@ -89,11 +90,16 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
             }
         }
 
+        public void closeConnection() {
+            asteroidRunner.closeConnection();
+        }
+
         public void unpause() {
             setState(STATE_RUNNING);
         }
 
         public void pause() {
+            Log.i(TAG, "Application is paused");
             synchronized (surfaceHolder) {
                 if (mode == STATE_RUNNING)
                     setState(STATE_PAUSE);
@@ -238,6 +244,8 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         boolean retry = true;
+        thread.closeConnection();
+        Log.i(TAG, "Closing connection");
         thread.setRunning(false);
         while (retry) {
             try {

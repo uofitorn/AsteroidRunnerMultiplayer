@@ -5,6 +5,7 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.media.AudioManager;
 import android.os.Bundle;
@@ -31,6 +32,7 @@ public class AsteroidRunner {
     public static final int GAMESTATE_IN_LOBBY = 4;
     public static final int GAMESTATE_WAITING = 5;
     public static final int GAMESTATE_COUNTDOWN = 6;
+    public static final int GAMESTATE_LOST_GAME =7;
 
     public static final int COMMAND_CONNECT = 0;
     public static final int COMMAND_DISCONNECT = 1;
@@ -48,6 +50,7 @@ public class AsteroidRunner {
 
     private int explosionSound;
     private int startingSound;
+    private int gameOverSound;
     private static SoundPool soundPool;
 
     private int playerX = 0;
@@ -98,10 +101,10 @@ public class AsteroidRunner {
     private Bitmap difficulty, difficulty0, difficulty1, difficulty2, difficulty3;
     private Bitmap[] numerals = new Bitmap[8];
 
-    int upArrowX = 230, upArrowY = 630;
-    int downArrowX = 230, downArrowY = 830;
-    int leftArrowX = 140, leftArrowY = 740;
-    int rightArrowX =  315, rightArrowY = 740;
+    int upArrowX = 227, upArrowY = 640;
+    int downArrowX = 227, downArrowY = 840;
+    int leftArrowX = 130, leftArrowY = 740;
+    int rightArrowX =  325, rightArrowY = 740;
     int newGameX = 95, newGameY = 700;
     int mainMenuX = 95, mainMenuY = 800;
     int newGameX2 = 90, newGameY2 = 540;
@@ -111,7 +114,6 @@ public class AsteroidRunner {
 
     private String status = "";
 
-    //private Thread cThread;
     private NetworkThread mNetworkThread;
     boolean connected = false;
 
@@ -159,6 +161,10 @@ public class AsteroidRunner {
                     MyTask t = new MyTask();
                     new Timer().schedule(t, 3000);
                     break;
+                case COMMAND_PLAYER_WON:
+                    soundPool.play(gameOverSound, 1.0f, 1.0f, 1, 0, 1.0f);
+                    gameState = GAMESTATE_LOST_GAME;
+                    break;
             }
         }
     };
@@ -180,6 +186,7 @@ public class AsteroidRunner {
         soundPool = new SoundPool(2, AudioManager.STREAM_MUSIC, 100);
         explosionSound = soundPool.load(context, R.raw.explosiongameover, 1);
         startingSound = soundPool.load(context, R.raw.startingsound, 1);
+        gameOverSound = soundPool.load(context, R.raw.gameover, 1);
     }
 
     public void initImages(Context context) {
@@ -376,7 +383,7 @@ public class AsteroidRunner {
         if(otherPlayerState == OTHER_PLAYER_STATE_ALIVE)
             canvas.drawBitmap(otherPlayerShip, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight + 5, null);
         else
-            canvas.drawBitmap(explosion, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight + 5, null);
+            canvas.drawBitmap(explosion, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight, null);
     }
 
     public void drawMineCount(Canvas canvas) {
@@ -448,7 +455,6 @@ public class AsteroidRunner {
         }
         playerVisited[0][0] = 1;
         gameState = GAMESTATE_PLAYING;
-        Log.i(TAG, "Playing start sound in resetGame()");
         soundPool.play(startingSound, 1.0f, 1.0f, 1, 0, 1f);
     }
 
@@ -458,10 +464,8 @@ public class AsteroidRunner {
             soundPool.play(explosionSound, 1.0f, 1.0f, 1, 0, 1.0f);
             mNetworkThread.sendMessage(COMMAND_OTHER_PLAYER_CRASHED);
         } else if (playerX == 11 && playerY == 11) {
+            mNetworkThread.sendMessage(COMMAND_PLAYER_WON);
             gameState = GAMESTATE_WON_GAME;
-        } else {
-            // Only play sound if not a collision or winning state
-            ;//soundPool.play(zoomSound, 1.0f, 1.0f, 1, 0, 1.0f);
         }
     }
 
@@ -620,5 +624,9 @@ public class AsteroidRunner {
 
     void setStatus(String status) {
         this.status = status;
+    }
+
+    void closeConnection() {
+        mNetworkThread.closeConnection();
     }
 }
