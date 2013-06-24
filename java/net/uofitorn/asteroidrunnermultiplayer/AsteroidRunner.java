@@ -23,7 +23,7 @@ public class AsteroidRunner {
 
     private final static String TAG = "AsteroidRunner";
 
-    public static final int DELAY_TO_START_GAME = 1;
+    public static final int DELAY_TO_START_GAME = 3;
 
     public static final int GAMESTATE_PLAYING = 0;
     public static final int GAMESTATE_WON_GAME = 1;
@@ -81,6 +81,8 @@ public class AsteroidRunner {
     private int[][] gameBoard = new int[boardSize][boardSize];
     private int[][] playerVisited = new int[boardSize][boardSize];
     private int[][] otherPlayerVisited = new int[boardSize][boardSize];
+    //private double difficultyLevelValue = DIFFICULTY_MEDIUM_VALUE;
+    //private int difficultyLevel = DIFFICULTY_MEDIUM;
     private double difficultyLevelValue = DIFFICULTY_EASY_VALUE;
     private int difficultyLevel = DIFFICULTY_EASY;
 
@@ -116,6 +118,7 @@ public class AsteroidRunner {
 
     private NetworkThread mNetworkThread;
     boolean connected = false;
+    boolean sentPlayerWonMessage = false;
 
     class MyTask extends TimerTask {
         public void run() {
@@ -387,7 +390,7 @@ public class AsteroidRunner {
     }
 
     public void drawMineCount(Canvas canvas) {
-        canvas.drawBitmap(minesNearby, 50, canvasWidth + 20, null);
+        canvas.drawBitmap(minesNearby, 10, canvasWidth + 20, null);
         canvas.drawBitmap(numerals[surroundingMines], 390, frameBufferWidth - 60, null);
     }
 
@@ -464,8 +467,11 @@ public class AsteroidRunner {
             soundPool.play(explosionSound, 1.0f, 1.0f, 1, 0, 1.0f);
             mNetworkThread.sendMessage(COMMAND_OTHER_PLAYER_CRASHED);
         } else if (playerX == 11 && playerY == 11) {
-            mNetworkThread.sendMessage(COMMAND_PLAYER_WON);
-            gameState = GAMESTATE_WON_GAME;
+            if (!sentPlayerWonMessage) {
+                mNetworkThread.sendMessage(COMMAND_PLAYER_WON);
+                gameState = GAMESTATE_WON_GAME;
+                sentPlayerWonMessage = true;
+            }
         }
     }
 
@@ -534,6 +540,7 @@ public class AsteroidRunner {
         gridSquareHeight = gridSquareLength;
         this.scaleX = scaleX;
         this.scaleY = scaleY;
+        this.newGameX2 = (canvasWidth / 2) - (newGame.getWidth() / 2);
     }
 
     void initializeImages(int framebufferWidth, int framebufferHeight) {
@@ -576,11 +583,11 @@ public class AsteroidRunner {
             calcSurroundingMines();
             calculateCollision();
         } else if(gameState == GAMESTATE_CRASHED) {
-            if(checkBounds(newGameX, newGameY, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
+          /*  if(checkBounds(newGameX, newGameY, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
                 startNewGame();
             } else if (checkBounds(mainMenuX, mainMenuY, mainMenu.getWidth(), mainMenu.getHeight(), touchX, touchY)) {
                 gameState = GAMESTATE_MAIN_MENU;
-            }
+            } */
         } else if(gameState == GAMESTATE_WON_GAME) {
             if(checkBounds(newGameX, newGameY, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
                 startNewGame();

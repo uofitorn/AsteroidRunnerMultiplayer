@@ -46,7 +46,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         float scaleX;
         float scaleY;
 
-        private int didDrawCrash = 0;
+        private boolean didDrawCrash = false;
 
         Canvas fbCanvas;
 
@@ -112,13 +112,14 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
 
         public void updateState() {
             asteroidRunner.calculateCollision();
-            if ((asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) && didDrawCrash == 1) {
+
+            if ((asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) && didDrawCrash == true) {
                 try {
                     Thread.sleep(3000);
                 } catch (Exception e) {
                     Log.e(TAG, "Caught exception in thread.sleep");
                 }
-                didDrawCrash = 0;
+                didDrawCrash = false;
                 asteroidRunner.resetGame();
             }
         }
@@ -135,7 +136,9 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) {
                 asteroidRunner.drawResetGame(fbCanvas);
                 asteroidRunner.drawSquareCover(fbCanvas);
-                didDrawCrash = 1;
+                didDrawCrash = true;
+            } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_LOST_GAME) {
+                asteroidRunner.drawGameOver(fbCanvas);
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_WON_GAME) {
                 asteroidRunner.drawBackground(fbCanvas);
                 asteroidRunner.drawMines(fbCanvas);
