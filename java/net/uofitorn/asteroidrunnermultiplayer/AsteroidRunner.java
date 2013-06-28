@@ -5,16 +5,15 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.media.AudioManager;
-import android.os.Bundle;
-import android.os.Message;
 import android.util.Log;
 import android.media.SoundPool;
-import android.os.Handler;
 
 import android.graphics.Color;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.util.Timer;
 import java.util.TimerTask;
@@ -23,7 +22,7 @@ public class AsteroidRunner {
 
     private final static String TAG = "AsteroidRunner";
 
-    public static final int DELAY_TO_START_GAME = 3;
+    public static final int DELAY_TO_START_GAME = 1;
 
     public static final int GAMESTATE_PLAYING = 0;
     public static final int GAMESTATE_WON_GAME = 1;
@@ -32,7 +31,7 @@ public class AsteroidRunner {
     public static final int GAMESTATE_IN_LOBBY = 4;
     public static final int GAMESTATE_WAITING = 5;
     public static final int GAMESTATE_COUNTDOWN = 6;
-    public static final int GAMESTATE_LOST_GAME =7;
+    public static final int GAMESTATE_LOST_GAME = 7;
 
     public static final int COMMAND_CONNECT = 0;
     public static final int COMMAND_DISCONNECT = 1;
@@ -77,10 +76,12 @@ public class AsteroidRunner {
     public static final int DIFFICULTY_MEDIUM = 2;
     public static final int DIFFICULTY_HARD = 3;
 
-    private static final int boardSize = 12;
-    private int[][] gameBoard = new int[boardSize][boardSize];
-    private int[][] playerVisited = new int[boardSize][boardSize];
-    private int[][] otherPlayerVisited = new int[boardSize][boardSize];
+    private static final int BOARDSIZE = 12;
+    private int[][] gameBoard = new int[BOARDSIZE][BOARDSIZE];
+    private int[][] playerVisited = new int[BOARDSIZE][BOARDSIZE];
+    private int[][] overallVisited = new int[BOARDSIZE][BOARDSIZE];
+    private int[][] encounteredMines = new int[BOARDSIZE][BOARDSIZE];
+
     //private double difficultyLevelValue = DIFFICULTY_MEDIUM_VALUE;
     //private int difficultyLevel = DIFFICULTY_MEDIUM;
     private double difficultyLevelValue = DIFFICULTY_EASY_VALUE;
@@ -128,7 +129,22 @@ public class AsteroidRunner {
         }
     }
 
-    Handler handler = new Handler() {
+    public void setOtherPlayerLocation(int x, int y) {
+        Log.i(TAG, "Setting other player location to x: " + x + " and y: " + y);
+        otherPlayerX = x;
+        otherPlayerY = y;
+    }
+
+    public void otherPlayerCrashed(int x, int y) {
+        otherPlayerX = x;
+        otherPlayerY = y;
+        otherPlayerState = OTHER_PLAYER_STATE_CRASHED;
+        soundPool.play(explosionSound, 1.0f, 1.0f, 1, 0, 1.0f);
+        MyTask t = new MyTask();
+        new Timer().schedule(t, 3000);
+    }
+
+    /*Handler handler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             Bundle bundle = msg.getData();
@@ -139,7 +155,7 @@ public class AsteroidRunner {
                     startNewGame();
                     break;
                 case COMMAND_MOVE_DOWN:
-                    if (otherPlayerY != boardSize - 1) {
+                    if (otherPlayerY != BOARDSIZE - 1) {
                         otherPlayerY++;
                     }
                     break;
@@ -154,7 +170,7 @@ public class AsteroidRunner {
                     }
                     break;
                 case COMMAND_MOVE_RIGHT:
-                    if (otherPlayerX != boardSize - 1) {
+                    if (otherPlayerX != BOARDSIZE - 1) {
                         otherPlayerX++;
                     }
                     break;
@@ -170,7 +186,11 @@ public class AsteroidRunner {
                     break;
             }
         }
-    };
+    }; */
+
+    public void setNetworkThread(NetworkThread mNetworkThread) {
+        this.mNetworkThread = mNetworkThread;
+    }
 
     public AsteroidRunner(Context context, int frameBufferWidth, int frameBufferHeight) {
         this.frameBufferWidth = frameBufferWidth;
@@ -237,9 +257,11 @@ public class AsteroidRunner {
         } while (!isSolvable());
 
         calcSurroundingMines();
-        for (int i = 0; i < boardSize; i++) {
-            for (int j = 0; j < boardSize; j++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
                 playerVisited[i][j] = 0;
+                overallVisited[i][j] = 0;
+                encounteredMines[i][j] = 0;
             }
         }
 
@@ -263,13 +285,13 @@ public class AsteroidRunner {
         gameState = GAMESTATE_IN_LOBBY;
         gameState = GAMESTATE_WAITING;
         connected = true;
-        mNetworkThread = new NetworkThread(handler);
+        //mNetworkThread.connectToServer();
         mNetworkThread.start();
     }
 
     public void drawMines(Canvas canvas) {
-        for (int i = 0; i < boardSize; i++) {
-            for (int j = 0; j < boardSize; j++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
                 if (gameBoard[i][j] == 1) {
                     canvas.drawBitmap(spaceMine, i * gridSquareLength, j * gridSquareHeight, null);
                 }
@@ -278,12 +300,12 @@ public class AsteroidRunner {
     }
 
     public void drawSquareCover(Canvas canvas) {
-        for (int i = 0; i < boardSize; i++) {
-            for (int j = 0; j < boardSize; j++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
                 if (playerVisited[i][j] == 0) {
                     if (i == 0 && j == 0)
                         continue;
-                    if (i == boardSize - 1 && j == boardSize - 1)
+                    if (i == BOARDSIZE - 1 && j == BOARDSIZE - 1)
                         continue;
                     canvas.drawBitmap(squareBG, i * gridSquareLength, j * gridSquareHeight, null);
                 }
@@ -292,14 +314,33 @@ public class AsteroidRunner {
     }
 
     public void drawVisited(Canvas canvas) {
-        for (int i = 0; i < boardSize; i++) {
-            for (int j = 0; j < boardSize; j++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
                 if (playerVisited[i][j] == 1) {
-                    if (i == boardSize - 1 && j == boardSize - 1)
+                    if (i == BOARDSIZE - 1 && j == BOARDSIZE - 1)
                         continue;
                     if (i == playerX && j == playerY)
                         continue;
                     canvas.drawBitmap(visitedSquare, i * gridSquareLength, j * gridSquareHeight, null);
+                }
+            }
+        }
+    }
+
+    public void drawOverallVisited(Canvas canvas) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
+                if (overallVisited[i][j] == 1) {
+                    if (i == BOARDSIZE - 1 && j == BOARDSIZE - 1)
+                        continue;
+                    if (i == playerX && j == playerY)
+                        continue;
+                    if (playerVisited[i][j] == 1)
+                        continue;
+                    canvas.drawBitmap(visitedSquare, i * gridSquareLength, j * gridSquareHeight, null);
+                }
+                if (encounteredMines[i][j] == 1) {
+                    canvas.drawBitmap(spaceMine, i * gridSquareLength, j * gridSquareHeight, null);
                 }
             }
         }
@@ -311,10 +352,10 @@ public class AsteroidRunner {
             Paint gridPaint = new Paint();
             gridPaint.setAntiAlias(true);
             gridPaint.setARGB(255, 255, 255, 255);
-            for (int i = 0; i <= boardSize; i++) {
+            for (int i = 0; i <= BOARDSIZE; i++) {
                 canvas.drawLine(0, i * gridSquareHeight, frameBufferWidth, i * gridSquareHeight, gridPaint);
             }
-            for (int i = 0; i < boardSize; i++) {
+            for (int i = 0; i < BOARDSIZE; i++) {
                 canvas.drawLine(i * gridSquareLength, 0, i * gridSquareLength, frameBufferWidth, gridPaint);
             }
             canvas.drawBitmap(wormhole, 11 * gridSquareLength, 11 * gridSquareLength, null);
@@ -337,15 +378,15 @@ public class AsteroidRunner {
                     canvas.drawBitmap(difficulty3, difficultyLevelX, difficultyLevelY, null);
                     break;
             } */
-        } else if (gameState == GAMESTATE_WON_GAME) {
+        } else if (gameState == GAMESTATE_WON_GAME || gameState == GAMESTATE_LOST_GAME) {
             canvas.drawBitmap(backgroundImage, 0, 0, null);
             Paint gridPaint = new Paint();
             gridPaint.setAntiAlias(true);
             gridPaint.setARGB(255, 255, 255, 255);
-            for (int i = 0; i <= boardSize; i++) {
+            for (int i = 0; i <= BOARDSIZE; i++) {
                 canvas.drawLine(0, i * gridSquareHeight, frameBufferWidth, i * gridSquareHeight, gridPaint);
             }
-            for (int i = 0; i < boardSize; i++) {
+            for (int i = 0; i < BOARDSIZE; i++) {
                 canvas.drawLine(i * gridSquareLength, 0, i * gridSquareLength, frameBufferWidth, gridPaint);
             }
             canvas.drawBitmap(wormhole, 11 * gridSquareLength, 11 * gridSquareLength, null);
@@ -358,10 +399,10 @@ public class AsteroidRunner {
         Paint gridPaint = new Paint();
         gridPaint.setAntiAlias(true);
         gridPaint.setARGB(255, 255, 255, 255);
-        for (int i = 0; i <= boardSize; i++) {
+        for (int i = 0; i <= BOARDSIZE; i++) {
             canvas.drawLine(0, i * gridSquareHeight, frameBufferWidth, i * gridSquareHeight, gridPaint);
         }
-        for (int i = 0; i < boardSize; i++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
             canvas.drawLine(i * gridSquareLength, 0, i * gridSquareLength, frameBufferWidth, gridPaint);
         }
         canvas.drawBitmap(wormhole, 11 * gridSquareLength, 11 * gridSquareLength, null);
@@ -383,10 +424,12 @@ public class AsteroidRunner {
     }
 
     public void drawOtherPlayerShip(Canvas canvas) {
-        if(otherPlayerState == OTHER_PLAYER_STATE_ALIVE)
+        if(otherPlayerState == OTHER_PLAYER_STATE_ALIVE) {
             canvas.drawBitmap(otherPlayerShip, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight + 5, null);
-        else
+        }
+        else {
             canvas.drawBitmap(explosion, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight, null);
+        }
     }
 
     public void drawMineCount(Canvas canvas) {
@@ -400,15 +443,15 @@ public class AsteroidRunner {
             numMines++;
         if (playerY != 0 && (gameBoard[playerX][playerY - 1] == 1))
             numMines++;
-        if (playerY != 0 && (playerX != boardSize - 1) && (gameBoard[playerX + 1][playerY - 1] == 1))
+        if (playerY != 0 && (playerX != BOARDSIZE - 1) && (gameBoard[playerX + 1][playerY - 1] == 1))
             numMines++;
-        if ((playerX != boardSize - 1) && (gameBoard[playerX + 1][playerY] == 1))
+        if ((playerX != BOARDSIZE - 1) && (gameBoard[playerX + 1][playerY] == 1))
             numMines++;
-        if ((playerX != boardSize - 1) && (playerY != boardSize - 1) && (gameBoard[playerX + 1][playerY + 1] == 1))
+        if ((playerX != BOARDSIZE - 1) && (playerY != BOARDSIZE - 1) && (gameBoard[playerX + 1][playerY + 1] == 1))
             numMines++;
-        if ((playerY != boardSize - 1) && (gameBoard[playerX][playerY + 1] == 1))
+        if ((playerY != BOARDSIZE - 1) && (gameBoard[playerX][playerY + 1] == 1))
             numMines++;
-        if (playerX != 0 && (playerY != boardSize - 1) && (gameBoard[playerX - 1][playerY + 1] == 1))
+        if (playerX != 0 && (playerY != BOARDSIZE - 1) && (gameBoard[playerX - 1][playerY + 1] == 1))
             numMines++;
         if (playerX != 0 && (gameBoard[playerX - 1][playerY] == 1))
             numMines++;
@@ -419,23 +462,23 @@ public class AsteroidRunner {
         if (playerY != 0) {
             playerY--;
             playerVisited[playerX][playerY] = 1;
-            mNetworkThread.sendMessage(COMMAND_MOVE_UP);
+            mNetworkThread.sendUpdatedLocation(playerX, playerY);
         }
     }
 
     public void handleMoveDown() {
-        if (playerY != boardSize - 1) {
+        if (playerY != BOARDSIZE - 1) {
             playerY++;
             playerVisited[playerX][playerY] = 1;
-            mNetworkThread.sendMessage(COMMAND_MOVE_DOWN);
+            mNetworkThread.sendUpdatedLocation(playerX, playerY);
         }
     }
 
     public void handleMoveRight() {
-        if (playerX != boardSize - 1) {
+        if (playerX != BOARDSIZE - 1) {
             playerX++;
             playerVisited[playerX][playerY] = 1;
-            mNetworkThread.sendMessage(COMMAND_MOVE_RIGHT);
+            mNetworkThread.sendUpdatedLocation(playerX, playerY);
         }
     }
 
@@ -443,7 +486,7 @@ public class AsteroidRunner {
         if (playerX != 0) {
             playerX--;
             playerVisited[playerX][playerY] = 1;
-            mNetworkThread.sendMessage(COMMAND_MOVE_LEFT);
+            mNetworkThread.sendUpdatedLocation(playerX, playerY);
         }
     }
 
@@ -451,8 +494,8 @@ public class AsteroidRunner {
         playerX = 0;
         playerY = 0;
         calcSurroundingMines();
-        for (int i = 0; i < boardSize; i++) {
-            for (int j = 0; j < boardSize; j++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
                 playerVisited[i][j] = 0;
             }
         }
@@ -465,10 +508,24 @@ public class AsteroidRunner {
         if (gameBoard[playerX][playerY] == 1) {
             gameState = GAMESTATE_CRASHED;
             soundPool.play(explosionSound, 1.0f, 1.0f, 1, 0, 1.0f);
-            mNetworkThread.sendMessage(COMMAND_OTHER_PLAYER_CRASHED);
+            mNetworkThread.sendCrashed(playerX, playerY);
+            encounteredMines[playerX][playerY] = 1;
+            for(int i = 0; i < BOARDSIZE; i++) {
+                for(int j = 0; j < BOARDSIZE; j++) {
+                    if(playerVisited[i][j] == 1) {
+                        overallVisited[i][j] = 1;
+                    }
+                }
+            }
         } else if (playerX == 11 && playerY == 11) {
             if (!sentPlayerWonMessage) {
-                mNetworkThread.sendMessage(COMMAND_PLAYER_WON);
+                try{
+                    JSONObject command = new JSONObject();
+                    command.put("command", "otherPlayerWon");
+                    mNetworkThread.sendMessage(command.toString());
+                } catch (JSONException e) {
+                    Log.e(TAG, "Caught JSONException e: " + e.toString());
+                }
                 gameState = GAMESTATE_WON_GAME;
                 sentPlayerWonMessage = true;
             }
@@ -477,8 +534,12 @@ public class AsteroidRunner {
 
     public void drawYouWon(Canvas canvas) {
         canvas.drawBitmap(youEscaped, 10, frameBufferWidth + 50, null);
-        canvas.drawBitmap(newGame, newGameX, newGameY, null);
-        canvas.drawBitmap(mainMenu, mainMenuX, mainMenuY, null);
+        canvas.drawBitmap(newGame, newGameX2, newGameY2, null);
+        //canvas.drawBitmap(mainMenu, mainMenuX, mainMenuY, null);
+    }
+
+    public void handleYouLost() {
+        gameState = GAMESTATE_LOST_GAME;
     }
 
     public int getGameState() {
@@ -487,8 +548,8 @@ public class AsteroidRunner {
 
     private void shuffleMap() {
         double difficultyThreshold = 0;
-        for (int i = 0; i < boardSize; i++) {
-            for (int j = 0; j < boardSize; j++) {
+        for (int i = 0; i < BOARDSIZE; i++) {
+            for (int j = 0; j < BOARDSIZE; j++) {
                 difficultyThreshold = difficultyLevelValue;
                 double rand = Math.random();
                 if (rand < difficultyThreshold) {
@@ -499,7 +560,7 @@ public class AsteroidRunner {
             }
         }
         gameBoard[0][0] = 0;
-        gameBoard[boardSize - 1][boardSize - 1] = 0;
+        gameBoard[BOARDSIZE - 1][BOARDSIZE - 1] = 0;
     }
 
     private boolean isSolvable() {
@@ -536,7 +597,7 @@ public class AsteroidRunner {
     void initializeBounds(int canvasWidth, int canvasHeight, float scaleX, float scaleY) {
         this.canvasWidth = canvasWidth;
         this.canvasHeight = canvasHeight;
-        gridSquareLength = canvasWidth / boardSize;
+        gridSquareLength = canvasWidth / BOARDSIZE;
         gridSquareHeight = gridSquareLength;
         this.scaleX = scaleX;
         this.scaleY = scaleY;
@@ -557,9 +618,8 @@ public class AsteroidRunner {
     }
 
     void drawGameOver(Canvas canvas) {
-        canvas.drawBitmap(gameOver, 85, frameBufferWidth + 50, null);
-        //canvas.drawBitmap(newGame, newGameX, newGameY, null);
-        //canvas.drawBitmap(mainMenu, mainMenuX, mainMenuY, null);
+        canvas.drawBitmap(gameOver, (frameBufferWidth / 2) - (gameOver.getWidth() / 2), frameBufferWidth + 50, null);
+        canvas.drawBitmap(newGame, newGameX2, newGameY2, null);
     }
 
     void drawControls(Canvas canvas) {
@@ -589,7 +649,8 @@ public class AsteroidRunner {
                 gameState = GAMESTATE_MAIN_MENU;
             } */
         } else if(gameState == GAMESTATE_WON_GAME) {
-            if(checkBounds(newGameX, newGameY, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
+            if(checkBounds(newGameX2, newGameY2, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
+                mNetworkThread.sendMessage("STARTGAME");
                 startNewGame();
             } else if (checkBounds(mainMenuX, mainMenuY, mainMenu.getWidth(), mainMenu.getHeight(), touchX, touchY)) {
                 gameState = GAMESTATE_MAIN_MENU;

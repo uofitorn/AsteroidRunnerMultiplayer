@@ -2,6 +2,7 @@ package net.uofitorn.asteroidrunnermultiplayer;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -9,8 +10,6 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.graphics.Canvas;
-import android.os.Handler;
-import android.os.Message;
 
 public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
 
@@ -29,15 +28,9 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         private int canvasWidth = 1;
         private int boardWidth = 1;
         private int boardHeight = 1;
-        private Handler handler;
         private boolean running = false;
         private SurfaceHolder surfaceHolder;
         private AsteroidRunner asteroidRunner;
-
-        public static final int LEFT_ARROW = 0;
-        public static final int RIGHT_ARROW = 1;
-        public static final int UP_ARROW = 2;
-        public static final int DOWN_ARROW = 3;
 
         Bitmap framebuffer;
         Bitmap framebufferFinal;
@@ -47,18 +40,21 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         float scaleY;
 
         private boolean didDrawCrash = false;
+        private NetworkThread mNetworkThread;
 
         Canvas fbCanvas;
 
-        public LunarThread(SurfaceHolder surfaceHolder, Context ctx, Handler handler) {
+        public LunarThread(SurfaceHolder surfaceHolder, Context ctx) {
             super();
             this.surfaceHolder = surfaceHolder;
-            this.handler = handler;
             context = ctx;
             framebuffer = Bitmap.createBitmap(frameBufferWidth, frameBufferHeight, Bitmap.Config.RGB_565);
             fbCanvas = new Canvas(framebuffer);
             asteroidRunner = new AsteroidRunner(ctx, frameBufferWidth, frameBufferHeight);
             Log.i(TAG, "Testing logging to lunarthread");
+            mNetworkThread = new NetworkThread(asteroidRunner);
+            asteroidRunner.setNetworkThread(mNetworkThread);
+            Log.i(TAG, "Successfully started network thread (I think...)");
         }
 
         public void setRunning(boolean running) { //Allow us to stop the thread
@@ -129,20 +125,27 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
             if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_PLAYING) {
                 asteroidRunner.drawBackground(fbCanvas);
                 asteroidRunner.drawMineCount(fbCanvas);
-                asteroidRunner.drawSquareCover(fbCanvas);
                 asteroidRunner.drawControls(fbCanvas);
+                asteroidRunner.drawSquareCover(fbCanvas);
+                asteroidRunner.drawOverallVisited(fbCanvas);
                 asteroidRunner.drawOtherPlayerShip(fbCanvas);
                 asteroidRunner.drawPlayerShip(fbCanvas);
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) {
                 asteroidRunner.drawResetGame(fbCanvas);
                 asteroidRunner.drawSquareCover(fbCanvas);
+                asteroidRunner.drawOverallVisited(fbCanvas);
                 didDrawCrash = true;
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_LOST_GAME) {
+                asteroidRunner.drawBackground(fbCanvas);
+                asteroidRunner.drawMines(fbCanvas);
+                asteroidRunner.drawVisited(fbCanvas);
+                asteroidRunner.drawOverallVisited(fbCanvas);
                 asteroidRunner.drawGameOver(fbCanvas);
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_WON_GAME) {
                 asteroidRunner.drawBackground(fbCanvas);
                 asteroidRunner.drawMines(fbCanvas);
                 asteroidRunner.drawVisited(fbCanvas);
+                asteroidRunner.drawOverallVisited(fbCanvas);
                 asteroidRunner.drawYouWon(fbCanvas);
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_MAIN_MENU) {
                 asteroidRunner.drawBackground(fbCanvas);
@@ -207,12 +210,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         getHolder().addCallback(this);
         setFocusable(true);
 
-        thread = new LunarThread(getHolder(), context, new Handler() {
-            @Override
-            public void handleMessage(Message m) {
-
-            }
-        });
+        thread = new LunarThread(getHolder(), context);
     }
 
     public LunarThread getThread() {
@@ -229,12 +227,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         //thread.setRunning(true);
         //thread.start();
         if (thread.getState() == Thread.State.TERMINATED) {
-            thread = new LunarThread(getHolder(), context, new Handler() {
-                @Override
-                public void handleMessage(Message m) {
-
-                }
-            });
+            thread = new LunarThread(getHolder(), context);
             thread.setRunning(true);
             thread.start();
         }

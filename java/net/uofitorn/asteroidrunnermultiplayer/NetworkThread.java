@@ -1,8 +1,5 @@
 package net.uofitorn.asteroidrunnermultiplayer;
 
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Message;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -12,6 +9,8 @@ import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class NetworkThread extends Thread {
 
@@ -20,14 +19,14 @@ public class NetworkThread extends Thread {
     Socket socket;
     BufferedReader in;
     boolean connected = false;
-    Handler handler;
     PrintWriter out;
+    AsteroidRunner asteroidRunner;
 
-    public NetworkThread(Handler handler) {
-        this.handler = handler;
+    public NetworkThread(AsteroidRunner asteroidRunner) {
+        this.asteroidRunner = asteroidRunner;
     }
 
-    public void sendMessage(int message) {
+    public void sendMessage(String message) {
         Log.i(TAG, "Sending message: " + message + " to server.");
         try {
             out.println(message);
@@ -37,23 +36,36 @@ public class NetworkThread extends Thread {
     }
 
     public void run() {
+        connectToServer();
         try {
             while(true) {
                 if (connected) {
                     final String msgFromServer = in.readLine();
+                    /*if (msgFromServer == null) {
+                        Log.e(TAG, "WARNING: RECEIVED NULL");
+                        continue;
+                    } */
                     Log.i(TAG, "Message received: " + msgFromServer);
-                    switch (Integer.parseInt(msgFromServer)) {
-                        case 99:
-                            closeConnection();
-                            break;
+                    if (msgFromServer.contains("STARTGAME")) {
+                            asteroidRunner.startNewGame();
+                    } else {
+                        try {
+                            JSONObject jObject = new JSONObject(msgFromServer);
+                            if (jObject.getString("command").equalsIgnoreCase("move")) {
+                                int x = Integer.parseInt(jObject.getString("x"));
+                                int y = Integer.parseInt(jObject.getString("y"));
+                                asteroidRunner.setOtherPlayerLocation(x, y);
+                            } else if (jObject.getString("command").equalsIgnoreCase("crashed")){
+                                int x = Integer.parseInt(jObject.getString("x"));
+                                int y = Integer.parseInt(jObject.getString("y"));
+                                asteroidRunner.otherPlayerCrashed(x, y);
+                            } else if (jObject.getString("command").equalsIgnoreCase("otherPlayerWon")) {
+                                asteroidRunner.handleYouLost();
+                            }
+                        } catch (JSONException e) {
+                            Log.e(TAG, "Caught JSONException in run: " + e.toString());
+                        }
                     }
-                    Message msg = handler.obtainMessage();
-                    Bundle bundle = new Bundle();
-                    bundle.putInt("command", Integer.parseInt(msgFromServer));
-                    msg.setData(bundle);
-                    handler.sendMessage(msg);
-                } else {
-                    connectToServer();
                 }
             }
         } catch (IOException e) {
@@ -67,9 +79,9 @@ public class NetworkThread extends Thread {
             serverAddr = InetAddress.getByName("208.78.100.124");
             socket = new Socket(serverAddr, 3000);
             Log.i(TAG, "Connected to server");
-            connected = true;
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             out = new PrintWriter(socket.getOutputStream(), true);
+            connected = true;
         } catch (Exception e) {
             Log.e(TAG, "Caught exception connecting to server: " + e.toString());
         }
@@ -83,6 +95,30 @@ public class NetworkThread extends Thread {
             Log.i(TAG, "Disconnecting from server");
         } catch (Exception e) {
             Log.e(TAG, "Exception closing connection");
+        }
+    }
+
+    public void sendUpdatedLocation(int x, int y) {
+        try {
+            JSONObject command = new JSONObject();
+            command.put("x", x);
+            command.put("y", y);
+            command.put("command", "move");
+            sendMessage(command.toString());
+        } catch (JSONException e) {
+            Log.e(TAG, "Caught JSONException in sendUpdatedLocation: " + e.toString());
+        }
+    }
+
+    public void sendCrashed(int x, int y) {
+        try {
+            JSONObject command = new JSONObject();
+            command.put("x", x);
+            command.put("y", y);
+            command.put("command", "crashed");
+            sendMessage(command.toString());
+        } catch (JSONException e) {
+            Log.e(TAG, "Caught JSONException in sendCrashed: " + e.toString());
         }
     }
 }
