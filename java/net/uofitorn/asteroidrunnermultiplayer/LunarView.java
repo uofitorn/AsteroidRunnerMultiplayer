@@ -2,7 +2,6 @@ package net.uofitorn.asteroidrunnermultiplayer;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.graphics.Rect;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -107,6 +106,16 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
         }
 
         public void updateState() {
+            if (asteroidRunner.getConnected()) {
+                if (asteroidRunner.getOtherPlayerConnected()) {
+                    asteroidRunner.setStatus(1, "Connected to server.");
+                    asteroidRunner.setStatus(2, "Other player connected.");
+                } else {
+                    asteroidRunner.setStatus(1, "Connected to server.");
+                    asteroidRunner.setStatus(2, "Waiting for other player to join.");
+                }
+            }
+
             asteroidRunner.calculateCollision();
 
             if ((asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_CRASHED) && didDrawCrash == true) {
@@ -150,7 +159,7 @@ public class LunarView extends SurfaceView implements SurfaceHolder.Callback {
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_MAIN_MENU) {
                 asteroidRunner.drawBackground(fbCanvas);
             } else if (asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_IN_LOBBY || asteroidRunner.getGameState() == AsteroidRunner.GAMESTATE_WAITING) {
-                asteroidRunner.drawLobby(fbCanvas);
+                //asteroidRunner.drawLobby(fbCanvas);
             }
             canvas.getClipBounds(dstRect);
             framebufferFinal = Bitmap.createScaledBitmap(framebuffer, canvasWidth, canvasHeight, true);

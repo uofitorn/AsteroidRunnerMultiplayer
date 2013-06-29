@@ -67,6 +67,8 @@ public class AsteroidRunner {
     private int frameBufferHeight;
     private int countDown;
 
+    private int playerNumber = 0;
+
     public static final double DIFFICULTY_SUPER_EASY_VALUE = 0.02;
     public static final double DIFFICULTY_EASY_VALUE = 0.08;
     public static final double DIFFICULTY_MEDIUM_VALUE = 0.13;
@@ -103,6 +105,7 @@ public class AsteroidRunner {
     private Bitmap startScreen, mainMenu;
     private Bitmap difficulty, difficulty0, difficulty1, difficulty2, difficulty3;
     private Bitmap[] numerals = new Bitmap[8];
+    private Bitmap connectToServer;
 
     int upArrowX = 227, upArrowY = 640;
     int downArrowX = 227, downArrowY = 840;
@@ -113,12 +116,15 @@ public class AsteroidRunner {
     int newGameX2 = 90, newGameY2 = 540;
     int difficultyLabelX = 130, difficultyLabelY = 650;
     int difficultyLevelX = 280, difficultyLevelY = 650;
+    int connectX = 280, connectY = 650;
     float scaleX, scaleY;
 
-    private String status = "";
+    private String status1 = "";
+    private String status2 = "";
 
     private NetworkThread mNetworkThread;
     boolean connected = false;
+    boolean otherPlayerConnected = false;
     boolean sentPlayerWonMessage = false;
 
     class MyTask extends TimerTask {
@@ -151,7 +157,7 @@ public class AsteroidRunner {
             int command = bundle.getInt("command");
             switch(command) {
                 case COMMAND_BEGIN:
-                    setStatus("Beginning game");
+                    setStatus1("Beginning game");
                     startNewGame();
                     break;
                 case COMMAND_MOVE_DOWN:
@@ -215,7 +221,7 @@ public class AsteroidRunner {
     public void initImages(Context context) {
         Resources res = context.getResources();
         backgroundImage = BitmapFactory.decodeResource(res, R.drawable.starbackground);
-        playerShip = BitmapFactory.decodeResource(res, R.drawable.lander_plain);
+        playerShip = BitmapFactory.decodeResource(res, R.drawable.playership);
         spaceMine = BitmapFactory.decodeResource(res, R.drawable.spacemine);
         squareBG = BitmapFactory.decodeResource(res, R.drawable.bgsquare);
         explosion = BitmapFactory.decodeResource(res, R.drawable.explosion);
@@ -238,6 +244,7 @@ public class AsteroidRunner {
         difficulty3 = BitmapFactory.decodeResource(res, R.drawable.difficulty3);
         mainMenu = BitmapFactory.decodeResource(res, R.drawable.mainmenu);
         otherPlayerShip = BitmapFactory.decodeResource(res, R.drawable.otherplayership);
+        connectToServer = BitmapFactory.decodeResource(res, R.drawable.connect);
 
         numerals[0] = BitmapFactory.decodeResource(res, R.drawable.zero);
         numerals[1] = BitmapFactory.decodeResource(res, R.drawable.one);
@@ -267,7 +274,7 @@ public class AsteroidRunner {
 
         for (int i = DELAY_TO_START_GAME; i != 0; i--) {
             try {
-                setStatus("Starting game in " + i);
+                setStatus(1, "Starting game in " + i);
                 Thread.sleep(1000);
             } catch (Exception e) {
                 Log.e(TAG, "Caught exception: " + e + " + in Thread.sleep");
@@ -281,12 +288,22 @@ public class AsteroidRunner {
     }
 
     public void startNewMultiplayerGame() {
-        setStatus("Connecting to server...");
+        setStatus(1, "Connecting to server...");
         gameState = GAMESTATE_IN_LOBBY;
         gameState = GAMESTATE_WAITING;
-        connected = true;
-        //mNetworkThread.connectToServer();
+        try {
+            JSONObject command = new JSONObject();
+            command.put("command", "startGame");
+            mNetworkThread.sendMessage(command.toString());
+        } catch (JSONException e) {
+            Log.e(TAG, "Caught JSONException e: " + e.toString());
+        }
+        startNewGame();
+    }
+
+    public void connectToServer() {
         mNetworkThread.start();
+        connected = true;
     }
 
     public void drawMines(Canvas canvas) {
@@ -362,22 +379,38 @@ public class AsteroidRunner {
             canvas.drawBitmap(redStar, 0, 0, null);
         } else if (gameState == GAMESTATE_MAIN_MENU) {
             canvas.drawBitmap(startScreen, 0, 0, null);
-            canvas.drawBitmap(newGame, newGameX2, newGameY2, null);
-            /* canvas.drawBitmap(difficulty, difficultyLabelX, difficultyLabelY, null);
-            switch (difficultyLevel) {
-                case DIFFICULTY_SUPER_EASY:
-                    canvas.drawBitmap(difficulty0, difficultyLevelX, difficultyLevelY, null);
-                    break;
-                case DIFFICULTY_EASY:
-                    canvas.drawBitmap(difficulty1, difficultyLevelX, difficultyLevelY, null);
-                    break;
-                case DIFFICULTY_MEDIUM:
-                    canvas.drawBitmap(difficulty2, difficultyLevelX, difficultyLevelY, null);
-                    break;
-                case DIFFICULTY_HARD:
-                    canvas.drawBitmap(difficulty3, difficultyLevelX, difficultyLevelY, null);
-                    break;
-            } */
+            if (connected) {
+                canvas.drawBitmap(newGame, newGameX2, newGameY2, null);
+                canvas.drawBitmap(difficulty, difficultyLabelX, difficultyLabelY, null);
+                switch (difficultyLevel) {
+                    case DIFFICULTY_SUPER_EASY:
+                        canvas.drawBitmap(difficulty0, difficultyLevelX, difficultyLevelY, null);
+                        break;
+                    case DIFFICULTY_EASY:
+                        canvas.drawBitmap(difficulty1, difficultyLevelX, difficultyLevelY, null);
+                        break;
+                    case DIFFICULTY_MEDIUM:
+                        canvas.drawBitmap(difficulty2, difficultyLevelX, difficultyLevelY, null);
+                        break;
+                    case DIFFICULTY_HARD:
+                        canvas.drawBitmap(difficulty3, difficultyLevelX, difficultyLevelY, null);
+                        break;
+                }
+                Paint paint = new Paint();
+                paint.setColor(Color.YELLOW);
+                paint.setTextSize(28);
+                paint.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText(status1, canvas.getWidth() / 2, canvas.getHeight() - 200, paint);
+                canvas.drawText(status2, canvas.getWidth() / 2, canvas.getHeight() - 100, paint);
+            } else {
+                canvas.drawBitmap(connectToServer, connectX, connectY, null);
+                Paint paint = new Paint();
+                paint.setColor(Color.YELLOW);
+                paint.setTextSize(28);
+                paint.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText(status1, canvas.getWidth() / 2, canvas.getHeight() - 200, paint);
+                canvas.drawText(status2, canvas.getWidth() / 2, canvas.getHeight() - 100, paint);
+            }
         } else if (gameState == GAMESTATE_WON_GAME || gameState == GAMESTATE_LOST_GAME) {
             canvas.drawBitmap(backgroundImage, 0, 0, null);
             Paint gridPaint = new Paint();
@@ -416,7 +449,8 @@ public class AsteroidRunner {
         paint.setColor(Color.YELLOW);
         paint.setTextSize(28);
         paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(status, canvas.getWidth() / 2, canvas.getHeight() - 100, paint);
+        canvas.drawText(status1, canvas.getWidth() / 2, canvas.getHeight() - 200, paint);
+        canvas.drawText(status2, canvas.getWidth() / 2, canvas.getHeight() - 100, paint);
     }
 
     public void drawPlayerShip(Canvas canvas) {
@@ -425,7 +459,7 @@ public class AsteroidRunner {
 
     public void drawOtherPlayerShip(Canvas canvas) {
         if(otherPlayerState == OTHER_PLAYER_STATE_ALIVE) {
-            canvas.drawBitmap(otherPlayerShip, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight + 5, null);
+            canvas.drawBitmap(otherPlayerShip, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight, null);
         }
         else {
             canvas.drawBitmap(explosion, otherPlayerX * gridSquareLength, otherPlayerY * gridSquareHeight, null);
@@ -535,7 +569,6 @@ public class AsteroidRunner {
     public void drawYouWon(Canvas canvas) {
         canvas.drawBitmap(youEscaped, 10, frameBufferWidth + 50, null);
         canvas.drawBitmap(newGame, newGameX2, newGameY2, null);
-        //canvas.drawBitmap(mainMenu, mainMenuX, mainMenuY, null);
     }
 
     public void handleYouLost() {
@@ -602,6 +635,7 @@ public class AsteroidRunner {
         this.scaleX = scaleX;
         this.scaleY = scaleY;
         this.newGameX2 = (canvasWidth / 2) - (newGame.getWidth() / 2);
+        connectX = (canvasWidth / 2) - (connectToServer.getWidth() / 2);
     }
 
     void initializeImages(int framebufferWidth, int framebufferHeight) {
@@ -642,12 +676,6 @@ public class AsteroidRunner {
             }
             calcSurroundingMines();
             calculateCollision();
-        } else if(gameState == GAMESTATE_CRASHED) {
-          /*  if(checkBounds(newGameX, newGameY, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
-                startNewGame();
-            } else if (checkBounds(mainMenuX, mainMenuY, mainMenu.getWidth(), mainMenu.getHeight(), touchX, touchY)) {
-                gameState = GAMESTATE_MAIN_MENU;
-            } */
         } else if(gameState == GAMESTATE_WON_GAME) {
             if(checkBounds(newGameX2, newGameY2, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
                 mNetworkThread.sendMessage("STARTGAME");
@@ -656,31 +684,62 @@ public class AsteroidRunner {
                 gameState = GAMESTATE_MAIN_MENU;
             }
         } else if (gameState == GAMESTATE_MAIN_MENU) {
-            if(checkBounds(newGameX2, newGameY2, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
-                startNewMultiplayerGame();
-            } /* else if (checkBounds(difficultyLabelX, difficultyLabelY, difficulty.getWidth(), difficulty.getHeight(), touchX, touchY) ||
-                    checkBounds(difficultyLevelX, difficultyLevelY, difficulty2.getWidth(), difficulty2.getHeight(), touchX, touchY)) {
-                switch (difficultyLevel) {
-                    case DIFFICULTY_SUPER_EASY:
-                        difficultyLevel = DIFFICULTY_EASY;
-                        difficultyLevelValue = DIFFICULTY_EASY_VALUE;
-                        break;
-                    case DIFFICULTY_EASY:
-                        difficultyLevel = DIFFICULTY_MEDIUM;
-                        difficultyLevelValue = DIFFICULTY_MEDIUM_VALUE;
-                        break;
-                    case DIFFICULTY_MEDIUM:
-                        difficultyLevel = DIFFICULTY_HARD;
-                        difficultyLevelValue = DIFFICULTY_HARD_VALUE;
-                        break;
-                    case DIFFICULTY_HARD:
-                        difficultyLevel = DIFFICULTY_SUPER_EASY;
-                        difficultyLevelValue = DIFFICULTY_SUPER_EASY_VALUE;
-                        break;
+            if (connected) {
+                if(checkBounds(newGameX2, newGameY2, newGame.getWidth(), newGame.getHeight(), touchX, touchY)) {
+                    if (otherPlayerConnected) {
+                        startNewMultiplayerGame();
+                    }
+                }  else if (checkBounds(difficultyLabelX, difficultyLabelY, difficulty.getWidth(), difficulty.getHeight(), touchX, touchY) ||
+                        checkBounds(difficultyLevelX, difficultyLevelY, difficulty2.getWidth(), difficulty2.getHeight(), touchX, touchY)) {
+                    if (otherPlayerConnected) {
+                        switch (difficultyLevel) {
+                            case DIFFICULTY_SUPER_EASY:
+                                setDifficultyLevel(DIFFICULTY_EASY);
+                                break;
+                            case DIFFICULTY_EASY:
+                                setDifficultyLevel(DIFFICULTY_MEDIUM);
+                                break;
+                            case DIFFICULTY_MEDIUM:
+                                setDifficultyLevel(DIFFICULTY_HARD);
+                                break;
+                            case DIFFICULTY_HARD:
+                                setDifficultyLevel(DIFFICULTY_SUPER_EASY);
+                                break;
+                        }
+                        try {
+                            JSONObject command = new JSONObject();
+                            command.put("difficultyLevel", Integer.toString(difficultyLevel));
+                            command.put("command", "difficulty");
+                            mNetworkThread.sendMessage(command.toString());
+                        } catch (JSONException e) {
+                            Log.e(TAG, "Caught JSONException in sendUpdatedLocation: " + e.toString());
+                        }
+                    }
                 }
-            } */
-
+            } else {
+                if(checkBounds(connectX, connectY, connectToServer.getWidth(), connectToServer.getHeight(), touchX, touchY)) {
+                    mNetworkThread.start();
+                    connected = true;
+                }
+            }
         }
+    }
+
+    void setDifficultyLevel(int mDifficultyLevel) {
+        if (mDifficultyLevel == DIFFICULTY_EASY) {
+            difficultyLevel = DIFFICULTY_EASY;
+            difficultyLevelValue = DIFFICULTY_EASY_VALUE;
+        } else if (mDifficultyLevel == DIFFICULTY_MEDIUM) {
+            difficultyLevel = DIFFICULTY_MEDIUM;
+            difficultyLevelValue = DIFFICULTY_MEDIUM_VALUE;
+        }  else if (mDifficultyLevel == DIFFICULTY_HARD) {
+            difficultyLevel = DIFFICULTY_HARD;
+            difficultyLevelValue = DIFFICULTY_HARD_VALUE;
+        }  else if (mDifficultyLevel == DIFFICULTY_SUPER_EASY) {
+            difficultyLevel = DIFFICULTY_SUPER_EASY;
+            difficultyLevelValue = DIFFICULTY_SUPER_EASY_VALUE;
+        }
+        Log.i(TAG, "Setting difficulty level to " + mDifficultyLevel);
     }
 
     boolean checkBounds(int x, int y, float xSize, float ySize, float touchX, float touchY) {
@@ -690,11 +749,38 @@ public class AsteroidRunner {
             return false;
     }
 
-    void setStatus(String status) {
-        this.status = status;
+    void setStatus(int statusLine, String status) {
+        switch(statusLine) {
+            case 1:
+                this.status1 = status;
+                break;
+            case 2:
+                this.status2 = status;
+                break;
+        }
     }
 
     void closeConnection() {
-        mNetworkThread.closeConnection();
+    mNetworkThread.closeConnection();
+}
+
+    void setOtherPlayerConnected() {
+        otherPlayerConnected = true;
+    }
+
+    boolean getOtherPlayerConnected() {
+        return otherPlayerConnected;
+    }
+
+    public boolean getConnected() {
+        return connected;
+    }
+
+    public int getPlayerNumber() {
+        return playerNumber;
+    }
+
+    public void setPlayerNumber(int playerNumber) {
+        this.playerNumber = playerNumber;
     }
 }

@@ -61,6 +61,25 @@ public class NetworkThread extends Thread {
                                 asteroidRunner.otherPlayerCrashed(x, y);
                             } else if (jObject.getString("command").equalsIgnoreCase("otherPlayerWon")) {
                                 asteroidRunner.handleYouLost();
+                            } else if (jObject.getString("command").equalsIgnoreCase("difficulty")) {
+                                int difficultyLevel = Integer.parseInt(jObject.getString("difficultyLevel"));
+                                Log.i(TAG, "Setting difficulty level to " + difficultyLevel);
+                                asteroidRunner.setDifficultyLevel(difficultyLevel);
+                            } else if (jObject.getString("command").equalsIgnoreCase("startGame")) {
+                                asteroidRunner.startNewGame();
+                            } else if (jObject.getString("command").equalsIgnoreCase("playerNumber")) {
+                                Log.i(TAG, "Received player number " + jObject.getString("playerNumber"));
+                                if (asteroidRunner.getPlayerNumber() == 0) {
+                                    if (jObject.getString("playerNumber").equalsIgnoreCase("1")) {
+                                        asteroidRunner.setPlayerNumber(1);
+                                    }
+                                    if (jObject.getString("playerNumber").equalsIgnoreCase("2")) {
+                                        asteroidRunner.setPlayerNumber(2);
+                                        asteroidRunner.setOtherPlayerConnected();
+                                    }
+                                } else if (jObject.getString("playerNumber").equalsIgnoreCase("2")){
+                                    asteroidRunner.setOtherPlayerConnected();
+                                }
                             }
                         } catch (JSONException e) {
                             Log.e(TAG, "Caught JSONException in run: " + e.toString());
